@@ -4,6 +4,8 @@ Pulls the user's recent public events (pushes, merged PRs, releases) via the
 GitHub REST API. Works unauthenticated for public activity; an optional PAT
 (stored encrypted in the vault) raises rate limits and enables private repos.
 """
+import base64
+
 import requests
 
 from .. import consent, vault
@@ -11,6 +13,7 @@ from ..config import MAX_SIGNAL_CONTENT
 from ..storage import add_signal, get_db, log_ledger
 
 API = "https://api.github.com"
+README_EXCERPT_LENGTH = 600
 
 INTERESTING = {
     "PushEvent": "push",
@@ -28,7 +31,29 @@ def _headers() -> dict:
     return headers
 
 
-def _ingest_via_repos(conn, seen: set, username: str, days: int = 7) -> list[int]:
+def _readme_excerpt(full_name: str) -> str:
+    """Return a bounded README excerpt; missing READMEs are normal."""
+    try:
+        resp = requests.get(
+            f"{API}/repos/{full_name}/readme", headers=_headers(), timeout=20
+        )
+    except requests.RequestException:
+        return ""
+    if resp.status_code != 200:
+        return ""
+    try:
+        encoded = resp.json().get("content", "")
+    except ValueError:
+        return ""
+    if not encoded:
+        return ""
+    try:
+        return base64.b64decode(encoded).decode("utf-8", errors="ignore")[:README_EXCERPT_LENGTH]
+    except ValueError:
+        return ""
+
+
+def _ingest_via_repos(conn, seen: set, days: int = 7) -> list[int]:
     """Authenticated path: recently pushed repos + their commits.
 
     Reliable for private repos (the public events feed is not), and much
@@ -51,7 +76,10 @@ def _ingest_via_repos(conn, seen: set, username: str, days: int = 7) -> list[int
         full = repo["full_name"]
         commits_resp = requests.get(
             f"{API}/repos/{full}/commits", headers=_headers(),
-            params={"since": since, "per_page": 5, "author": username},
+            # Do not filter by the GitHub login here. Commits may be authored
+            # with another account or an email that GitHub has not associated
+            # with the login, even when the repository belongs to the user.
+            params={"since": since, "per_page": 5},
             timeout=20,
         )
         if commits_resp.status_code != 200:
@@ -66,10 +94,18 @@ def _ingest_via_repos(conn, seen: set, username: str, days: int = 7) -> list[int
         seen.add(key)
         msgs = "; ".join(
             c["commit"]["message"].splitlines()[0] for c in commits
-        )[:MAX_SIGNAL_CONTENT]
+        )
+        context = []
+        if repo.get("description"):
+            context.append(f"Project description: {repo['description']}")
+        context.append(f"Recent commits: {msgs}")
+        readme = _readme_excerpt(full)
+        if readme:
+            context.append(f"README excerpt:\n{readme}")
         visibility = "private " if repo.get("private") else ""
         title = f"Pushed {len(commits)} commit(s) to {visibility}repo {full}"
-        sid = add_signal(conn, "github", "push", title, content=msgs, url=key,
+        sid = add_signal(conn, "github", "push", title,
+                         content="\n\n".join(context)[:MAX_SIGNAL_CONTENT], url=key,
                          ts=commits[0]["commit"]["author"]["date"])
         new_ids.append(sid)
     return new_ids
@@ -88,7 +124,7 @@ def ingest(limit: int = 30) -> list[int]:
 
     secrets = vault.get_secret("github")
     if secrets and secrets.get("token"):
-        new_ids = _ingest_via_repos(conn, seen, username)
+        new_ids = _ingest_via_repos(conn, seen)
         log_ledger(conn, "github", "ingest", f"new_signals={len(new_ids)} via=repos_api")
         conn.close()
         return new_ids

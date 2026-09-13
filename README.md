@@ -63,5 +63,11 @@ schedule) and Audit. Each user's DB and encrypted vault are fully isolated
 under `SMM_DATA_DIR/users/<id>/`; a background thread runs each user's
 pipeline at their chosen cadence. Expose publicly only behind HTTPS.
 
+For the web GitHub connection, create a GitHub OAuth App with callback URL
+`http://127.0.0.1:5000/connect/github/callback`, then put its client ID and
+client secret in `.env` as `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
+Users can then authorize GitHub from the Connections page without pasting a
+personal access token.
+
 Data lives in `~/.smm/` (SQLite DB + Fernet-encrypted vault). Override with
 `SMM_DATA_DIR`.

@@ -12,7 +12,9 @@ Run:  .venv/bin/python web/app.py           (dev, port 5000)
       .venv/bin/waitress-serve --port=8080 web.app:app   (prod-ish)
 """
 import json
+import hmac
 import os
+import requests
 import secrets
 import sqlite3
 import sys
@@ -27,7 +29,9 @@ from flask import (Flask, flash, g, redirect, render_template, request,
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from smm import consent, publisher, router, scheduler
-from smm.config import BASE_DIR, SCHEDULE_CHOICES, SUPPORTED_PLATFORMS, set_user_context
+from smm.config import (BASE_DIR, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET,
+                        GITHUB_OAUTH_SCOPE, SCHEDULE_CHOICES,
+                        SUPPORTED_PLATFORMS, set_user_context)
 from smm.connectors import manual as manual_connector
 from smm.storage import get_db as user_db
 
@@ -231,18 +235,74 @@ def connect_upload_post():
     return redirect(url_for("connections"))
 
 
-@app.route("/connect/github", methods=["POST"])
+@app.route("/connect/github/start")
 @login_required
-def connect_github():
-    username = request.form.get("username", "").strip()
-    token = request.form.get("token", "").strip()
-    if not username:
-        flash("GitHub username is required.", "error")
+def connect_github_start():
+    if not GITHUB_CLIENT_ID or not GITHUB_CLIENT_SECRET:
+        flash("GitHub OAuth is not configured. Set GITHUB_CLIENT_ID and "
+              "GITHUB_CLIENT_SECRET in .env.", "error")
         return redirect(url_for("connections"))
+
+    state = secrets.token_urlsafe(32)
+    session["github_oauth_state"] = state
+    params = {
+        "client_id": GITHUB_CLIENT_ID,
+        "redirect_uri": url_for("connect_github_callback", _external=True),
+        "scope": GITHUB_OAUTH_SCOPE,
+        "state": state,
+    }
+    from urllib.parse import urlencode
+    return redirect("https://github.com/login/oauth/authorize?" + urlencode(params))
+
+
+@app.route("/connect/github/callback")
+@login_required
+def connect_github_callback():
+    state = session.pop("github_oauth_state", None)
+    if not state or not hmac.compare_digest(state, request.args.get("state", "")):
+        flash("GitHub authorization could not be verified. Please try again.", "error")
+        return redirect(url_for("connections"))
+    if request.args.get("error"):
+        flash("GitHub authorization was cancelled.", "error")
+        return redirect(url_for("connections"))
+
+    code = request.args.get("code", "")
+    if not code:
+        flash("GitHub did not return an authorization code.", "error")
+        return redirect(url_for("connections"))
+
+    try:
+        token_resp = requests.post(
+            "https://github.com/login/oauth/access_token",
+            headers={"Accept": "application/json"},
+            data={"client_id": GITHUB_CLIENT_ID,
+                  "client_secret": GITHUB_CLIENT_SECRET, "code": code},
+            timeout=20,
+        )
+        token_resp.raise_for_status()
+        token = token_resp.json().get("access_token")
+        if not token:
+            raise ValueError(token_resp.json().get("error_description", "No access token returned"))
+
+        profile_resp = requests.get(
+            "https://api.github.com/user",
+            headers={"Accept": "application/vnd.github+json",
+                     "Authorization": f"Bearer {token}"},
+            timeout=20,
+        )
+        profile_resp.raise_for_status()
+        profile = profile_resp.json()
+        username = profile.get("login")
+        if not username:
+            raise ValueError("GitHub profile did not include a username")
+    except (requests.RequestException, ValueError) as exc:
+        flash(f"GitHub connection failed: {exc}", "error")
+        return redirect(url_for("connections"))
+
     record = consent.grant("github", ["read:activity"],
                            meta={"username": username},
-                           secrets={"token": token} if token else None)
-    flash(f"GitHub connected read-only (consent expires {record['expires_at']}).", "ok")
+                           secrets={"token": token})
+    flash(f"GitHub connected as {username} (consent expires {record['expires_at']}).", "ok")
     return redirect(url_for("connections"))
 
 

@@ -54,15 +54,9 @@ and revocations are recorded in your <a href="{{ url_for('audit') }}">audit ledg
   <h2>🐙 Source — GitHub (read-only)</h2>
   <p class="muted">The agent will only <b>read</b> your recent public activity
     (pushes, merged PRs, releases) to draft posts. Nothing is ever written to
-    GitHub. A personal access token is optional (raises rate limits / private
-    repos) and is stored encrypted.</p>
-  <form method="post" action="{{ url_for('connect_github') }}">
-    <label>GitHub username</label>
-    <input type="text" name="username" required>
-    <label>Personal access token (optional)</label>
-    <input type="password" name="token" autocomplete="off">
-    <button type="submit">Grant read-only consent</button>
-  </form>
+    GitHub. Click below to authorize access through GitHub; the app stores the
+    resulting token encrypted and never asks you to paste it.</p>
+  <a class="btn" href="{{ url_for('connect_github_start') }}">Connect GitHub</a>
 </div>
 
 <div class="card">

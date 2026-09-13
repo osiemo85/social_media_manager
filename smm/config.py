@@ -60,6 +60,11 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("SMM_OPENAI_MODEL", "gpt-4o-mini")
 MAX_SIGNAL_CONTENT = 1000  # chars of raw content kept per signal
 
+# GitHub OAuth (the client secret must never be committed)
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID", "")
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "")
+GITHUB_OAUTH_SCOPE = os.getenv("GITHUB_OAUTH_SCOPE", "read:user repo")
+
 # Upload-Post (unified publisher: LinkedIn + 21 other platforms)
 UPLOAD_POST_URL = "https://api.upload-post.com/api/upload_text"
 SUPPORTED_PLATFORMS = [
