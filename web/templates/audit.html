@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Audit</h1>
+<div class="card">
+  <h2>Consent records</h2>
+  <table>
+    <tr><th>Provider</th><th>Status</th><th>Scopes</th><th>Granted</th><th>Expires</th></tr>
+    {% for c in connections %}
+    <tr><td>{{ c.provider }}</td><td>{{ c.status }}</td>
+        <td>{{ c.scopes | join(', ') }}</td>
+        <td class="muted">{{ c.granted_at }}</td>
+        <td class="muted">{{ c.expires_at }}</td></tr>
+    {% else %}<tr><td colspan="5" class="muted">No consent records.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+<div class="card">
+  <h2>Ledger (append-only, latest first)</h2>
+  <table>
+    <tr><th>When</th><th>Provider</th><th>Action</th><th>Details</th></tr>
+    {% for e in ledger %}
+    <tr><td class="muted">{{ e.ts }}</td><td>{{ e.provider }}</td>
+        <td>{{ e.action }}</td><td class="muted">{{ e.details }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

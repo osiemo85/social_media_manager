@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Review Queue</h1>
+<p class="muted">Nothing is posted without your approval (unless you enabled
+auto-publish). Edit the text freely before publishing.</p>
+
+{% for d in drafts %}
+<div class="card">
+  <h2>Draft #{{ d.id }}
+    {% for p in d.platforms %}<span class="pill">{{ p }}</span>{% endfor %}</h2>
+  <p class="muted">Created {{ d.created_at }}</p>
+  <form method="post" action="{{ url_for('review_action', draft_id=d.id) }}">
+    <textarea name="text">{{ d.text }}</textarea>
+    <button type="submit" name="action" value="publish">Publish</button>
+    <button type="submit" name="action" value="save" class="secondary">Save edit</button>
+    <button type="submit" name="action" value="reject" class="danger">Reject</button>
+  </form>
+</div>
+{% else %}
+<div class="card"><p class="muted">Queue is empty. Create a draft from the
+  <a href="{{ url_for('dashboard') }}">dashboard</a>.</p></div>
+{% endfor %}
+{% endblock %}
