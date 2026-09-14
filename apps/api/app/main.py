@@ -1,6 +1,7 @@
 """FastAPI HTTP boundary for the consent-first Social Media Manager."""
 from __future__ import annotations
 
+import asyncio
 import hmac
 import os
 import secrets
@@ -172,7 +173,9 @@ async def create_draft(hint: str = Form(""), file: UploadFile | None = File(None
     conn = get_db()
     marks = ",".join("?" * len(signal_ids))
     signals = [dict(row) for row in conn.execute(f"SELECT * FROM signals WHERE id IN ({marks})", signal_ids)]
-    draft_id = add_draft(conn, drafting.draft_post(signals), signal_ids, ["linkedin"])
+    # The Agents SDK synchronous runner must not block FastAPI's event loop.
+    draft_text = await asyncio.to_thread(drafting.draft_post, signals)
+    draft_id = add_draft(conn, draft_text, signal_ids, ["linkedin"])
     conn.execute(f"UPDATE signals SET used=1 WHERE id IN ({marks})", signal_ids)
     conn.commit(); conn.close()
     outcome = router.route_draft(draft_id, ["manual"])

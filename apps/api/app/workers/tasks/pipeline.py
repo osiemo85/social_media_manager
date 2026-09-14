@@ -63,6 +63,7 @@ def draft_from_unused_signals(platforms: list[str] | None = None,
     signals = [dict(r) for r in rows]
     signal_ids = [s["id"] for s in signals]
 
+    print(f"Drafting post from signals: {signals}")
     text = drafting.draft_post(signals)
     draft_id = add_draft(conn, text, signal_ids, platforms)
     qmarks = ",".join("?" * len(signal_ids))

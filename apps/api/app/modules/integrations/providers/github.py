@@ -49,6 +49,7 @@ def _readme_excerpt(full_name: str) -> str:
     if not encoded:
         return ""
     try:
+        print(f"Decoded README excerpt for {full_name}")
         return base64.b64decode(encoded).decode("utf-8", errors="ignore")[:README_EXCERPT_LENGTH]
     except ValueError:
         return ""
