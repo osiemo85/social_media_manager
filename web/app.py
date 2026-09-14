@@ -219,8 +219,8 @@ def connections():
 @app.route("/connect/upload-post", methods=["POST"])
 @login_required
 def connect_upload_post():
-    api_key = request.form.get("api_key", "").strip()
-    username = request.form.get("username", "").strip()
+    api_key = request.form.get("upload_post_api_key", "").strip()
+    username = request.form.get("upload_post_username", "").strip()
     platforms = request.form.getlist("platforms")
     if not api_key or not username or not platforms:
         flash("API key, username, and at least one platform are required.", "error")

@@ -33,9 +33,9 @@ and revocations are recorded in your <a href="{{ url_for('audit') }}">audit ledg
     used only for the platforms you tick below.</p>
   <form method="post" action="{{ url_for('connect_upload_post') }}">
     <label>Upload-Post API key</label>
-    <input type="password" name="api_key" required autocomplete="off">
+    <input type="password" name="upload_post_api_key" required autocomplete="new-password">
     <label>Upload-Post username</label>
-    <input type="text" name="username" required>
+    <input type="text" name="upload_post_username" required autocomplete="off">
     <label>Platforms to allow publishing to</label>
     {% for p in platforms %}
       <label style="display:inline-block;margin-right:1rem;">

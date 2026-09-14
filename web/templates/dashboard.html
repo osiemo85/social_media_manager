@@ -35,10 +35,17 @@
 <div class="card">
   <h2>Recently published</h2>
   <table>
-    <tr><th>#</th><th>When</th><th>Platforms</th><th>Preview</th></tr>
+    <tr><th>#</th><th>When</th><th>Platforms</th><th>Post</th></tr>
     {% for d in recent %}
     <tr><td>{{ d.id }}</td><td>{{ d.published_at }}</td>
-        <td>{{ d.platforms }}</td><td>{{ d.text[:80] }}…</td></tr>
+        <td>{{ d.platforms }}</td>
+        <td>
+          <div>{{ d.text[:100] }}{% if d.text|length > 100 %}…{% endif %}</div>
+          <details>
+            <summary>More…</summary>
+            <pre class="post">{{ d.text }}</pre>
+          </details>
+        </td></tr>
     {% endfor %}
   </table>
 </div>
