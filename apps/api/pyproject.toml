@@ -1,0 +1,26 @@
+[project]
+name = "social-media-manager-api"
+version = "0.1.0"
+description = "Consent-first FastAPI service for Social Media Manager"
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.1",
+    "cryptography>=41.0",
+    "fastapi>=0.115",
+    "itsdangerous>=2.2",
+    "python-dotenv>=1.0",
+    "python-multipart>=0.0.9",
+    "requests>=2.31",
+    "uvicorn[standard]>=0.30",
+    "werkzeug>=3.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27",
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
