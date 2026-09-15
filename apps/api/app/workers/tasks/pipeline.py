@@ -13,7 +13,8 @@ from app.modules.publishing import state_machine as router
 from app.config.settings import SCHEDULE_CHOICES
 from app.modules.integrations.providers import filesystem as fs_connector
 from app.modules.integrations.providers import github as gh_connector
-from app.shared.database.session import add_draft, get_db, get_setting, log_ledger, set_setting
+from app.shared.database.session import (add_draft, get_db, get_latest_published_post,
+                                         get_setting, log_ledger, set_setting)
 
 SOURCES = {"github": gh_connector.ingest, "filesystem": fs_connector.ingest}
 
@@ -63,8 +64,8 @@ def draft_from_unused_signals(platforms: list[str] | None = None,
     signals = [dict(r) for r in rows]
     signal_ids = [s["id"] for s in signals]
 
-    print(f"Drafting post from signals: {signals}")
-    text = drafting.draft_post(signals)
+    previous_published_post = get_latest_published_post(conn)
+    text = drafting.draft_post(signals, previous_published_post)
     draft_id = add_draft(conn, text, signal_ids, platforms)
     qmarks = ",".join("?" * len(signal_ids))
     conn.execute(f"UPDATE signals SET used=1 WHERE id IN ({qmarks})", signal_ids)

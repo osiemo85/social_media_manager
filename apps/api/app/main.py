@@ -28,7 +28,7 @@ from app.modules.integrations import service as consent
 from app.modules.integrations.providers import manual as manual_connector
 from app.modules.publishing import service as publisher
 from app.modules.publishing import state_machine as router
-from app.shared.database.session import add_draft, get_db
+from app.shared.database.session import add_draft, get_db, get_latest_published_post
 from app.workers.tasks import pipeline as scheduler
 
 USERS_DB = BASE_DIR / "web_users.db"
@@ -173,8 +173,9 @@ async def create_draft(hint: str = Form(""), file: UploadFile | None = File(None
     conn = get_db()
     marks = ",".join("?" * len(signal_ids))
     signals = [dict(row) for row in conn.execute(f"SELECT * FROM signals WHERE id IN ({marks})", signal_ids)]
+    previous_published_post = get_latest_published_post(conn)
     # The Agents SDK synchronous runner must not block FastAPI's event loop.
-    draft_text = await asyncio.to_thread(drafting.draft_post, signals)
+    draft_text = await asyncio.to_thread(drafting.draft_post, signals, previous_published_post)
     draft_id = add_draft(conn, draft_text, signal_ids, ["linkedin"])
     conn.execute(f"UPDATE signals SET used=1 WHERE id IN ({marks})", signal_ids)
     conn.commit(); conn.close()

@@ -98,3 +98,12 @@ def add_draft(conn, text: str, signal_ids: list[int], platforms: list[str]) -> i
     )
     conn.commit()
     return cur.lastrowid
+
+
+def get_latest_published_post(conn: sqlite3.Connection) -> str | None:
+    """Return the most recently published draft text, if one exists."""
+    row = conn.execute(
+        "SELECT text FROM drafts WHERE status='published' "
+        "ORDER BY published_at DESC, id DESC LIMIT 1"
+    ).fetchone()
+    return row["text"] if row else None

@@ -14,7 +14,7 @@ from app.config.settings import SCHEDULE_CHOICES, SUPPORTED_PLATFORMS
 from app.modules.integrations.providers import filesystem as fs_connector
 from app.modules.integrations.providers import github as gh_connector
 from app.modules.integrations.providers import manual as manual_connector
-from app.shared.database.session import add_draft, get_db
+from app.shared.database.session import add_draft, get_db, get_latest_published_post
 
 
 @click.group()
@@ -174,7 +174,7 @@ def draft(hint, files, platforms, from_signals, dry_run):
         f"SELECT * FROM signals WHERE id IN ({qmarks})", signal_ids).fetchall()]
 
     click.echo("Drafting...")
-    text = drafting.draft_post(signals)
+    text = drafting.draft_post(signals, get_latest_published_post(conn))
     draft_id = add_draft(conn, text, signal_ids, platform_list)
     conn.execute(f"UPDATE signals SET used=1 WHERE id IN ({qmarks})", signal_ids)
     conn.commit()
