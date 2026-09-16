@@ -144,7 +144,9 @@ def dashboard(_: dict = Depends(current_user)) -> dict:
     conn = get_db()
     counts = {name: conn.execute("SELECT COUNT(*) n FROM drafts WHERE status=?", (name,)).fetchone()["n"] for name in ("pending", "published")}
     unused = conn.execute("SELECT COUNT(*) n FROM signals WHERE used=0").fetchone()["n"]
-    recent = [dict(row) for row in conn.execute("SELECT * FROM drafts WHERE status='published' ORDER BY id DESC LIMIT 5")]
+    recent = [dict(row) for row in conn.execute(
+        "SELECT * FROM drafts WHERE status='published' ORDER BY published_at DESC, id DESC LIMIT 5"
+    )]
     conn.close()
     return {"pending": counts["pending"], "published": counts["published"], "unused": unused, "mode": router.get_mode(), "schedule": scheduler.get_schedule(), "connections": [item for item in consent.list_all() if item["status"] == "active"], "recent": recent}
 
