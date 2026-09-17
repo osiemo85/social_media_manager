@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import hmac
+import json
 import os
 import secrets
 import sqlite3
@@ -14,18 +17,24 @@ from typing import Literal
 from urllib.parse import urlencode
 
 import requests
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from werkzeug.security import check_password_hash, generate_password_hash
+from pydantic import BaseModel, Field
 
 from app.config.settings import (BASE_DIR, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET,
                                  GITHUB_OAUTH_SCOPE, SCHEDULE_CHOICES,
-                                 SUPPORTED_PLATFORMS, set_user_context)
+                                 SOURCE_DEFAULTS, SOURCE_LOOKBACK_CHOICES,
+                                 SOURCE_MAX_ITEMS, SUPPORTED_PLATFORMS,
+                                 set_user_context)
 from app.modules.content import service as drafting
 from app.modules.integrations import service as consent
 from app.modules.integrations.providers import manual as manual_connector
+from app.modules.integrations.providers import gmail as gmail_connector
+from app.modules.integrations.providers import google_drive as drive_connector
+from app.modules.integrations.providers import google_oauth
 from app.modules.publishing import service as publisher
 from app.modules.publishing import state_machine as router
 from app.shared.database.session import add_draft, get_db, get_latest_published_post
@@ -34,6 +43,25 @@ from app.workers.tasks import pipeline as scheduler
 USERS_DB = BASE_DIR / "web_users.db"
 SECRET_PATH = BASE_DIR / "web_secret.key"
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+
+
+class SourceRunOption(BaseModel):
+    enabled: bool = True
+    max_items: int | None = Field(default=None, ge=1, le=SOURCE_MAX_ITEMS)
+    lookback_hours: int | None = None
+
+
+class PipelineRunRequest(BaseModel):
+    sources: dict[str, SourceRunOption] = Field(default_factory=dict)
+
+
+class SourcePolicyUpdate(BaseModel):
+    max_items: int = Field(ge=1, le=SOURCE_MAX_ITEMS)
+    lookback_hours: int
+    scheduled_enabled: bool = False
+    label_ids: list[str] | None = None
+    folder_id: str | None = None
+    folder_name: str | None = None
 
 
 def users_db() -> sqlite3.Connection:
@@ -64,6 +92,13 @@ def current_user(request: Request) -> dict:
 
 def error(exc: Exception) -> HTTPException:
     return HTTPException(400, str(exc))
+
+
+def public_connection(item: dict) -> dict:
+    return {**item, "meta": {
+        key: value for key, value in item.get("meta", {}).items()
+        if key != "google_sub"
+    }}
 
 
 def scheduler_loop() -> None:
@@ -148,7 +183,7 @@ def dashboard(_: dict = Depends(current_user)) -> dict:
         "SELECT * FROM drafts WHERE status='published' ORDER BY published_at DESC, id DESC LIMIT 5"
     )]
     conn.close()
-    return {"pending": counts["pending"], "published": counts["published"], "unused": unused, "mode": router.get_mode(), "schedule": scheduler.get_schedule(), "connections": [item for item in consent.list_all() if item["status"] == "active"], "recent": recent}
+    return {"pending": counts["pending"], "published": counts["published"], "unused": unused, "mode": router.get_mode(), "schedule": scheduler.get_schedule(), "connections": [public_connection(item) for item in consent.list_all() if item["status"] == "active"], "recent": recent}
 
 
 @app.post("/api/drafts")
@@ -186,13 +221,47 @@ async def create_draft(hint: str = Form(""), file: UploadFile | None = File(None
 
 
 @app.post("/api/pipeline/run")
-def run_pipeline(_: dict = Depends(current_user)) -> dict:
-    return scheduler.run_pipeline()
+def run_pipeline(request: PipelineRunRequest | None = Body(default=None),
+                 _: dict = Depends(current_user)) -> dict:
+    selected = None
+    if request is not None and request.sources:
+        allowed = {"github", "filesystem", "gmail", "google_drive"}
+        unknown = set(request.sources) - allowed
+        if unknown:
+            raise HTTPException(422, f"Unsupported source(s): {sorted(unknown)}")
+        selected = {
+            name: options.model_dump(exclude_none=True)
+            for name, options in request.sources.items()
+        }
+        for name, options in selected.items():
+            lookback = options.get("lookback_hours")
+            if lookback is not None and lookback not in SOURCE_LOOKBACK_CHOICES:
+                raise HTTPException(422, f"{name} lookback_hours must be one of {SOURCE_LOOKBACK_CHOICES}")
+    return scheduler.run_pipeline(selected_sources=selected)
 
 
 @app.get("/api/drafts")
 def list_drafts(status: Literal["pending", "published", "rejected"] = "pending", _: dict = Depends(current_user)) -> dict:
-    conn = get_db(); drafts = [dict(row) for row in conn.execute("SELECT * FROM drafts WHERE status=? ORDER BY id", (status,))]; conn.close()
+    conn = get_db()
+    drafts = []
+    for row in conn.execute("SELECT * FROM drafts WHERE status=? ORDER BY id", (status,)):
+        draft = dict(row)
+        ids = json.loads(draft.get("signal_ids") or "[]")
+        citations = []
+        if ids:
+            marks = ",".join("?" * len(ids))
+            citations = [
+                {"source": source["source"], "title": source["title"],
+                 "timestamp": source["ts"],
+                 "url": source["url"].split("#smm-version=", 1)[0]}
+                for source in conn.execute(
+                    f"SELECT source,title,ts,url FROM signals WHERE id IN ({marks}) ORDER BY ts DESC",
+                    ids,
+                )
+            ]
+        draft["citations"] = citations
+        drafts.append(draft)
+    conn.close()
     return {"drafts": drafts}
 
 
@@ -220,7 +289,16 @@ def publish_draft(draft_id: int, _: dict = Depends(current_user)) -> dict:
 
 @app.get("/api/connections")
 def connections(_: dict = Depends(current_user)) -> dict:
-    return {"connections": consent.list_all(), "platforms": SUPPORTED_PLATFORMS}
+    items = []
+    for item in consent.list_all():
+        items.append(public_connection(item))
+    return {
+        "connections": items,
+        "platforms": SUPPORTED_PLATFORMS,
+        "source_defaults": SOURCE_DEFAULTS,
+        "lookback_choices": SOURCE_LOOKBACK_CHOICES,
+        "source_max_items": SOURCE_MAX_ITEMS,
+    }
 
 
 @app.post("/api/connections/upload-post")
@@ -254,9 +332,91 @@ def github_callback(request: Request, state: str = "", code: str = "", _: dict =
     return RedirectResponse(os.getenv("WEB_ORIGIN", "http://localhost:3000").rstrip("/") + "/?github=connected", status_code=303)
 
 
+def _google_callback_url() -> str:
+    return os.getenv("WEB_ORIGIN", "http://localhost:3000").rstrip("/") + "/api/connections/google/callback"
+
+
+@app.get("/api/connections/{provider}/start")
+def google_start(provider: Literal["gmail", "google-drive"], request: Request,
+                 _: dict = Depends(current_user)) -> dict:
+    internal = "google_drive" if provider == "google-drive" else provider
+    state = secrets.token_urlsafe(32)
+    verifier = secrets.token_urlsafe(64)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+    request.session["google_oauth"] = {
+        "state": state, "provider": internal, "verifier": verifier,
+    }
+    try:
+        url = google_oauth.authorization_url(internal, state, _google_callback_url(), challenge)
+    except google_oauth.GoogleProviderError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return {"authorization_url": url}
+
+
+@app.get("/api/connections/google/callback")
+def google_callback(request: Request, state: str = "", code: str = "",
+                    oauth_error: str = Query(default="", alias="error"),
+                    _: dict = Depends(current_user)) -> RedirectResponse:
+    pending = request.session.pop("google_oauth", {})
+    if oauth_error:
+        raise HTTPException(400, "Google authorization was cancelled.")
+    if not pending or not hmac.compare_digest(str(pending.get("state", "")), state):
+        raise HTTPException(400, "Google authorization could not be verified.")
+    provider = str(pending["provider"])
+    try:
+        secret, profile = google_oauth.exchange_code(
+            provider, code, _google_callback_url(), str(pending["verifier"])
+        )
+    except google_oauth.GoogleProviderError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    meta = {
+        "account": profile["email"],
+        "google_sub": profile["sub"],
+        "grant_method": "oauth_web",
+        "retention": "source text cleared after drafting",
+        "revocation_url": "https://myaccount.google.com/connections",
+        "policy": SOURCE_DEFAULTS[provider],
+    }
+    consent.grant(provider, google_oauth.SCOPES[provider], meta=meta, secrets=secret)
+    label = "drive" if provider == "google_drive" else provider
+    return RedirectResponse(
+        os.getenv("WEB_ORIGIN", "http://localhost:3000").rstrip("/")
+        + f"/connections?{label}=connected", status_code=303,
+    )
+
+
+@app.get("/api/connections/gmail/labels")
+def gmail_labels(_: dict = Depends(current_user)) -> dict:
+    try:
+        return {"labels": gmail_connector.list_labels()}
+    except (consent.ConsentError, google_oauth.GoogleProviderError) as exc:
+        raise error(exc) from exc
+
+
+@app.get("/api/connections/google-drive/folders")
+def drive_folders(q: str = "", _: dict = Depends(current_user)) -> dict:
+    try:
+        return {"folders": drive_connector.list_folders(q[:100])}
+    except (consent.ConsentError, google_oauth.GoogleProviderError) as exc:
+        raise error(exc) from exc
+
+
+@app.put("/api/connections/{provider}/settings")
+def source_settings(provider: Literal["gmail", "google_drive"], body: SourcePolicyUpdate,
+                    _: dict = Depends(current_user)) -> dict:
+    values = body.model_dump(exclude_none=True)
+    try:
+        return {"policy": consent.set_source_policy(provider, values)}
+    except (ValueError, consent.ConsentError) as exc:
+        raise error(exc) from exc
+
+
 @app.delete("/api/connections/{provider}")
-def disconnect(provider: Literal["upload_post", "github", "filesystem"], _: dict = Depends(current_user)) -> None:
-    consent.revoke(provider)
+def disconnect(provider: Literal["upload_post", "github", "filesystem", "gmail", "google_drive"], _: dict = Depends(current_user)) -> None:
+    if provider in {"gmail", "google_drive"}:
+        google_oauth.disconnect(provider)
+    else:
+        consent.revoke(provider)
 
 
 @app.get("/api/settings")

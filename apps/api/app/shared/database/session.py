@@ -91,6 +91,28 @@ def add_signal(conn, source: str, type_: str, title: str,
     return cur.lastrowid
 
 
+def add_signal_once(conn, source: str, type_: str, title: str,
+                    content: str = "", url: str = "", ts: str | None = None) -> int | None:
+    """Atomically add a provider signal unless its stable source URL already exists."""
+    cur = conn.execute(
+        "INSERT INTO signals (source, type, title, content, url, ts) "
+        "SELECT ?, ?, ?, ?, ?, ? "
+        "WHERE NOT EXISTS (SELECT 1 FROM signals WHERE source=? AND url=?)",
+        (source, type_, title, content, url, ts or now_iso(), source, url),
+    )
+    conn.commit()
+    return cur.lastrowid if cur.rowcount else None
+
+
+def clear_signal_content(conn: sqlite3.Connection, signal_ids: list[int]) -> None:
+    """Remove sensitive cached text after it has been used to produce a draft."""
+    if not signal_ids:
+        return
+    marks = ",".join("?" * len(signal_ids))
+    conn.execute(f"UPDATE signals SET content='' WHERE id IN ({marks})", signal_ids)
+    conn.commit()
+
+
 def add_draft(conn, text: str, signal_ids: list[int], platforms: list[str]) -> int:
     cur = conn.execute(
         "INSERT INTO drafts (created_at, signal_ids, text, platforms) VALUES (?, ?, ?, ?)",

@@ -72,6 +72,11 @@ def route_draft(draft_id: int, sources: list[str], dry_run: bool = False) -> dic
         conn.close()
         return {"routed": "review_queue", "reason": "manual-source drafts always require review"}
 
+    if {"gmail", "google_drive"}.intersection(sources):
+        conn.close()
+        return {"routed": "review_queue",
+                "reason": "Gmail and Drive drafts require review in this release"}
+
     hit = _blocklist_hit(text)
     if hit:
         log_ledger(conn, "router", "auto_blocked", f"draft={draft_id} blocklist='{hit}'")

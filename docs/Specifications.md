@@ -332,8 +332,10 @@ both ways.
   `schedule` + `daemon`, web background scheduler thread, idempotent runs.
 - Manual Input Mode: hints and file uploads, zero consent required
   (CLI + web).
-- Sources: GitHub (read-only recent activity, optional PAT; CLI + web) and
-  local filesystem (allowlisted paths; CLI only).
+- Sources: GitHub (read-only recent activity, optional PAT; CLI + web),
+  Gmail (selected labels, bounded body extraction; web), Google Drive
+  (folder-scoped discovery of Docs/text/Markdown/PDF; web), and local
+  filesystem (allowlisted paths; CLI only).
 - Drafting: OpenAI if `OPENAI_API_KEY` set, template fallback otherwise
   (also falls back gracefully on LLM API errors).
 - Web PoC: multi-user register/login, per-user isolated DB + vault,
@@ -341,7 +343,8 @@ both ways.
 
 **Next:**
 1. Cooling-off window + 14-day trust period for Auto-Publish.
-2. Google Drive, Email, Calendar connectors (OAuth loopback/redirect flow).
-3. Sensitive-content filter (PII/secret detection) on all drafts.
-4. Production hardening for web: HTTPS/reverse proxy, email verification,
+2. Google Calendar and additional email providers.
+3. Expand sensitive-content filtering beyond Google-source ingestion.
+4. Production hardening for web: Google restricted-scope verification,
+   HTTPS/reverse proxy, email verification,
    2FA, CSRF tokens, Postgres + KMS adapters, worker queue.
