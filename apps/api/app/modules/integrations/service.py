@@ -6,7 +6,8 @@ time-boxed (default 90 days) and checked before any source read or publish.
 import json
 from datetime import datetime, timedelta, timezone
 
-from app.config.settings import CONSENT_TTL_DAYS
+from app.config.settings import (CONSENT_TTL_DAYS, SOURCE_DEFAULTS,
+                                 SOURCE_LOOKBACK_CHOICES, SOURCE_MAX_ITEMS)
 from app.shared.database.session import get_db, log_ledger, now_iso
 from app.shared.security import vault
 
@@ -54,14 +55,78 @@ def grant(provider: str, scopes: list[str], meta: dict | None = None,
     return record
 
 
-def revoke(provider: str) -> None:
+def revoke(provider: str, *, purge_all: bool = False) -> None:
     """Revoke consent and purge the provider's secrets and cached signals."""
     conn = get_db()
     conn.execute("UPDATE consent SET status='revoked' WHERE provider=?", (provider,))
-    purged = conn.execute("DELETE FROM signals WHERE source=? AND used=0", (provider,)).rowcount
+    suffix = "" if purge_all else " AND used=0"
+    purged = conn.execute(
+        f"DELETE FROM signals WHERE source=?{suffix}", (provider,)
+    ).rowcount
     conn.commit()
     log_ledger(conn, provider, "revoke", f"purged_unused_signals={purged}")
     vault.delete_secret(provider)
+    conn.close()
+
+
+def update_meta(provider: str, meta: dict) -> dict:
+    """Update non-secret connector policy while retaining the consent grant."""
+    record = require(provider)
+    conn = get_db()
+    conn.execute("UPDATE consent SET meta=? WHERE provider=?", (json.dumps(meta), provider))
+    conn.commit()
+    log_ledger(conn, provider, "settings_change", "connector policy updated")
+    conn.close()
+    return {**record, "meta": meta}
+
+
+def get_source_policy(provider: str) -> dict:
+    if provider not in SOURCE_DEFAULTS:
+        return {}
+    record = get(provider)
+    saved = (record or {}).get("meta", {}).get("policy", {})
+    return {**SOURCE_DEFAULTS[provider], **saved}
+
+
+def set_source_policy(provider: str, policy: dict) -> dict:
+    """Validate and persist user-controlled fetch bounds for a Google source."""
+    if provider not in SOURCE_DEFAULTS:
+        raise ValueError("That source does not support fetch settings.")
+    record = require(provider)
+    current = get_source_policy(provider)
+    merged = {**current, **policy}
+    try:
+        merged["max_items"] = int(merged["max_items"])
+        merged["lookback_hours"] = int(merged["lookback_hours"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Source limits must be numbers.") from exc
+    if not 1 <= merged["max_items"] <= SOURCE_MAX_ITEMS:
+        raise ValueError(f"max_items must be between 1 and {SOURCE_MAX_ITEMS}.")
+    if merged["lookback_hours"] not in SOURCE_LOOKBACK_CHOICES:
+        raise ValueError(f"lookback_hours must be one of {SOURCE_LOOKBACK_CHOICES}.")
+    merged["scheduled_enabled"] = bool(merged.get("scheduled_enabled", False))
+    if provider == "gmail":
+        labels = merged.get("label_ids")
+        if not isinstance(labels, list) or not labels or len(labels) > 20:
+            raise ValueError("Choose between 1 and 20 Gmail labels.")
+        merged["label_ids"] = [str(label) for label in labels if str(label).strip()]
+        if not merged["label_ids"]:
+            raise ValueError("Choose at least one Gmail label.")
+    else:
+        if not str(merged.get("folder_id", "")).strip():
+            raise ValueError("Choose a Drive folder.")
+        merged["folder_id"] = str(merged["folder_id"])
+        merged["folder_name"] = str(merged.get("folder_name", ""))[:200]
+    meta = {**record["meta"], "policy": merged}
+    update_meta(provider, meta)
+    return merged
+
+
+def set_status(provider: str, status: str, details: str = "") -> None:
+    conn = get_db()
+    conn.execute("UPDATE consent SET status=? WHERE provider=?", (status, provider))
+    conn.commit()
+    log_ledger(conn, provider, status, details)
     conn.close()
 
 

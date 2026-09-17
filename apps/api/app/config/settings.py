@@ -65,6 +65,32 @@ GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID", "")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "")
 GITHUB_OAUTH_SCOPE = os.getenv("GITHUB_OAUTH_SCOPE", "read:user repo")
 
+# Google OAuth sources. Gmail and Drive are separately consented even though
+# they use credentials from the same Google Cloud project.
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_SOURCES_ENABLED = os.getenv("SMM_GOOGLE_SOURCES_ENABLED", "false").lower() == "true"
+GOOGLE_HTTP_TIMEOUT_SECONDS = float(os.getenv("SMM_GOOGLE_HTTP_TIMEOUT_SECONDS", "20"))
+GOOGLE_MAX_DOWNLOAD_BYTES = int(os.getenv("SMM_GOOGLE_MAX_DOWNLOAD_BYTES", str(5 * 1024 * 1024)))
+
+SOURCE_LOOKBACK_CHOICES = [24, 48, 168]
+SOURCE_MAX_ITEMS = 20
+SOURCE_DEFAULTS = {
+    "gmail": {
+        "max_items": 5,
+        "lookback_hours": 24,
+        "scheduled_enabled": False,
+        "label_ids": ["INBOX"],
+    },
+    "google_drive": {
+        "max_items": 4,
+        "lookback_hours": 24,
+        "scheduled_enabled": False,
+        "folder_id": "",
+        "folder_name": "",
+    },
+}
+
 # Upload-Post (unified publisher: LinkedIn + 21 other platforms)
 UPLOAD_POST_URL = "https://api.upload-post.com/api/upload_text"
 SUPPORTED_PLATFORMS = [

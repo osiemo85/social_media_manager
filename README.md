@@ -1,12 +1,12 @@
 # Social Media Manager
 
-Social Media Manager is a consent-first assistant for turning work updates into social-media drafts. It can use a manual note or user-authorized GitHub and local-file signals, generate a grounded draft, and route it through review before publishing.
+Social Media Manager is a consent-first assistant for turning work updates into social-media drafts. It can use a manual note or user-authorized GitHub, Gmail, Google Drive, and local-file signals, generate a grounded draft with source citations, and route it through review before publishing.
 
 This repository is a proof of concept designed for local, single-user CLI use and a small multi-user web experience. Users control every data connection, can revoke access at any time, and must explicitly connect a publishing destination. LinkedIn publishing is handled through Upload-Post; additional supported destinations include X, Threads, Bluesky, Facebook, Reddit, Telegram, Discord, Mastodon, and Pinterest.
 
 ## What it does
 
-- Creates drafts from manual notes, supported local files, or recent GitHub activity.
+- Creates drafts from manual notes, supported local files, recent GitHub activity, labeled Gmail messages, or files in an authorized Drive folder.
 - Records consent with scopes and a default 90-day expiry.
 - Keeps provider credentials in an encrypted local vault.
 - Lets users review, edit, reject, or publish drafts; auto-publishing is opt-in and guarded.
@@ -21,7 +21,7 @@ This repository is a proof of concept designed for local, single-user CLI use an
 | Local persistence | SQLite with a Fernet-encrypted credential vault |
 | Drafting | OpenAI Agents SDK (optional; template drafts are used without an API key) |
 | Publishing | Upload-Post API |
-| Source connections | GitHub OAuth or a personal access token; allowlisted local files |
+| Source connections | GitHub OAuth, separately consented Gmail and Drive OAuth, or allowlisted local files |
 
 ## Prerequisites
 
@@ -34,6 +34,7 @@ Optional accounts and credentials:
 - An OpenAI API key for LLM-generated drafts.
 - An Upload-Post account with LinkedIn or another destination connected, for publishing.
 - A GitHub OAuth app for the web connection flow, or a personal access token for the CLI.
+- A Google OAuth web client with the Gmail and Drive APIs enabled for Google sources.
 
 ## Install
 
@@ -50,6 +51,14 @@ chmod +x scripts/agent
 ```
 
 Edit `.env` to add only the integrations you intend to use. `OPENAI_API_KEY` is optional. For browser-based GitHub authorization, set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`; configure the OAuth callback URL as `http://localhost:3000/api/connections/github/callback`.
+
+For Gmail and Drive, set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `SMM_GOOGLE_SOURCES_ENABLED=true`. Add this exact authorized redirect URI to the Google OAuth web client:
+
+```text
+http://localhost:3000/api/connections/google/callback
+```
+
+Gmail and Drive are independent connections in the app. Gmail defaults to 5 Inbox messages from the last 24 hours; Drive defaults to 4 supported files from the last 24 hours within a chosen folder. Users can select Gmail labels, choose a Drive folder, change the bounded lookback and count, and separately enable each source for scheduled runs. Gmail attachments, Sheets, Slides, images, and archives are not fetched. Google classifies the required `gmail.readonly` and `drive.readonly` scopes as restricted; public production deployments may require OAuth verification and a security assessment.
 
 By default, application data is stored in `~/.smm/`. Set `SMM_DATA_DIR` in `.env` to use a different location.
 
@@ -71,7 +80,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000), register an account, and use:
 
-- **Connections** to grant or revoke GitHub and Upload-Post access.
+- **Connections** to independently grant, configure, or revoke GitHub, Gmail, Drive, and Upload-Post access.
 - **Dashboard** to create a manual draft or run the signal pipeline.
 - **Review** to edit, approve, publish, or reject drafts.
 - **Settings** to choose review or guarded auto-publish mode and a schedule.
@@ -117,10 +126,11 @@ uv run pytest
 uv run python -m compileall -q app
 
 cd ../../frontend
+npm test
 npm run lint
 npm run build
 ```
 
 ## Privacy and safety
 
-Only connect sources and destinations you authorize. The application verifies consent before source ingestion and publishing, retains source signals locally, and allows revocation through the CLI or Connections page. Do not commit `.env`, API keys, OAuth client secrets, or exported application data. For any public deployment, serve the API and web app behind HTTPS and set `SMM_COOKIE_SECURE=true`.
+Only connect sources and destinations you authorize. The application verifies consent before source ingestion and publishing. Gmail and Drive source text is bounded, sanitized, and cleared after drafting; minimal citation metadata remains until the source is disconnected. Scheduled Google access is disabled until explicitly enabled per source. Do not commit `.env`, API keys, OAuth client secrets, or exported application data. For any public deployment, serve the API and web app behind HTTPS and set `SMM_COOKIE_SECURE=true`.

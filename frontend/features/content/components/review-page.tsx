@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api-client";
-type Draft = { id: string | number; text: string; created_at: string };
+type Citation = { source: string; title: string; timestamp: string; url: string };
+type Draft = { id: string | number; text: string; created_at: string; citations?: Citation[] };
 export function ReviewPage() {
   const [drafts, setDrafts] = useState<Draft[]>([]); const [notice, setNotice] = useState(""); const [error, setError] = useState("");
   const load = () => api<{ drafts: Draft[] }>("/drafts").then((result) => setDrafts(result.drafts ?? [])).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load drafts."));
@@ -11,5 +12,5 @@ export function ReviewPage() {
 }
 function DraftCard({ draft, done }: { draft: Draft; done: (message: string) => void }) {
   const [text, setText] = useState(draft.text); async function action(path: string, init: RequestInit) { try { await api(path, init); done(`Draft #${draft.id} updated.`); } catch (cause) { done(cause instanceof Error ? cause.message : "Action failed."); } }
-  return <article className="card"><h2>Draft #{draft.id}</h2><p className="muted">Created {draft.created_at}</p><textarea value={text} onChange={(event) => setText(event.target.value)} /><div className="actions"><button onClick={() => action(`/drafts/${draft.id}/publish`, { method: "POST" })}>Publish</button><button className="secondary" onClick={() => action(`/drafts/${draft.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) })}>Save edit</button><button className="danger" onClick={() => action(`/drafts/${draft.id}/reject`, { method: "POST" })}>Reject</button></div></article>;
+  return <article className="card"><h2>Draft #{draft.id}</h2><p className="muted">Created {draft.created_at}</p><textarea aria-label={`Draft ${draft.id} text`} value={text} onChange={(event) => setText(event.target.value)} />{draft.citations?.length ? <details className="citations"><summary>Sources used ({draft.citations.length})</summary><ul>{draft.citations.map((citation, index) => <li key={`${citation.source}-${index}`}><span>{citation.source}: {citation.title}</span> <span className="muted">{new Date(citation.timestamp).toLocaleString()}</span>{citation.url && <a href={citation.url} target="_blank" rel="noreferrer">Open source</a>}</li>)}</ul></details> : null}<div className="actions"><button onClick={() => action(`/drafts/${draft.id}/publish`, { method: "POST" })}>Publish</button><button className="secondary" onClick={() => action(`/drafts/${draft.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) })}>Save edit</button><button className="danger" onClick={() => action(`/drafts/${draft.id}/reject`, { method: "POST" })}>Reject</button></div></article>;
 }
